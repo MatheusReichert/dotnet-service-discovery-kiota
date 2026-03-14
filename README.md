@@ -1,6 +1,17 @@
-# POC: Service Discovery com .NET Aspire e Kiota
+# 🚀 POC: Service Discovery + Kiota
 
-Esta é uma prova de conceito demonstrando **Service Discovery** usando .NET Aspire com Microsoft.Extensions.ServiceDiscovery e geração de clientes HTTP com Kiota.
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Aspire](https://img.shields.io/badge/Aspire-13.1.2-512BD4)](https://learn.microsoft.com/en-us/dotnet/aspire/)
+[![Kiota](https://img.shields.io/badge/Kiota-1.22.0-00BCF2)](https://learn.microsoft.com/en-us/openapi/kiota/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+Esta é uma prova de conceito demonstrando a **integração perfeita** entre:
+- 🔍 **Descoberta Automática** via Kubernetes API com labels
+- 🤖 **Kiota** para clientes HTTP type-safe
+- 📦 **Projeto Shared** com código reutilizável
+
+> **Destaque:** Elimina URLs hardcoded + Type-safety em compile-time = Zero bugs de contrato em produção! 🎯
 
 ## 📋 Índice
 
@@ -1520,14 +1531,49 @@ Para expandir esta POC:
 
 ---
 
+## 📖 Documentação Adicional
+
+- **[INTEGRATION-GUIDE.md](INTEGRATION-GUIDE.md)** - Guia completo de integração Kiota + Descoberta
+- **[KIOTA-EXPLAINED.md](KIOTA-EXPLAINED.md)** - Kiota explicado de forma simples
+- **[AUTOMATIC-DISCOVERY.md](AUTOMATIC-DISCOVERY.md)** - Como funciona a descoberta automática
+- **[TESTING.md](TESTING.md)** - Guia de testes da POC deployada
+- **[k8s/SERVICE-DISCOVERY.md](k8s/SERVICE-DISCOVERY.md)** - Service Discovery no Kubernetes
+
+---
+
+## 🤝 Contribuindo
+
+Contribuições são bem-vindas! Sinta-se livre para:
+
+1. Fork o projeto
+2. Criar uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
+3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
+4. Push para a branch (`git push origin feature/AmazingFeature`)
+5. Abrir um Pull Request
+
+---
+
 ## 📝 Licença
 
-Este projeto é uma POC para fins educacionais.
+Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
 
 ---
 
 ## 👨‍💻 Autor
 
+**Matheus Reichert**
+
 POC criada para demonstrar Service Discovery com .NET Aspire e Kiota.
+
+- GitHub: [@MatheusReichert](https://github.com/MatheusReichert)
+- LinkedIn: [Matheus Reichert](https://www.linkedin.com/in/matheus-reichert/)
+
+---
+
+## ⭐ Star History
+
+Se este projeto foi útil para você, considere dar uma ⭐!
+
+---
 
 **Data**: Março 2026
