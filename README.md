@@ -44,30 +44,30 @@ Esta POC demonstra:
 
 ## 🏗️ Arquitetura
 
-```
-┌─────────────┐      Service Discovery      ┌─────────────┐      Service Discovery      ┌─────────────┐
-│  ServiceA   │ ──────────────────────────> │  ServiceB   │ ──────────────────────────> │  ServiceC   │
-│  (Users)    │  http://serviceb            │  (Products) │  http://servicec            │  (Orders)   │
-└─────────────┘                             └─────────────┘                             └─────────────┘
-      │                                            │                                            │
-      │                                            │                                            │
-      └────────────────────────────────────────────┴────────────────────────────────────────────┘
-                                                   │
-                                          ┌────────▼────────┐
-                                          │  Aspire AppHost │
-                                          │   (Orquestrador)│
-                                          └─────────────────┘
+```mermaid
+graph LR
+    A[ServiceA<br/>Users API] -->|Service Discovery<br/>http://serviceb| B[ServiceB<br/>Products API]
+    B -->|Service Discovery<br/>http://servicec| C[ServiceC<br/>Orders API]
+    
+    A -.->|Orquestrado por| D[Aspire AppHost]
+    B -.->|Orquestrado por| D
+    C -.->|Orquestrado por| D
+    
+    style A fill:#4A90E2,stroke:#2E5C8A,color:#fff
+    style B fill:#50C878,stroke:#2E7D4E,color:#fff
+    style C fill:#F39C12,stroke:#C87F0A,color:#fff
+    style D fill:#9B59B6,stroke:#6C3483,color:#fff
 ```
 
 ### Cadeia de Serviços
 
-1. **ServiceA** expõe endpoint `/api/users/with-products/{id}`
+1. **ServiceA (Users API)** expõe endpoint `/api/users/with-products/{id}`
    - Chama **ServiceB** via Service Discovery
 
-2. **ServiceB** expõe endpoint `/api/products/with-orders/{id}`
+2. **ServiceB (Products API)** expõe endpoint `/api/products/with-orders/{id}`
    - Chama **ServiceC** via Service Discovery
 
-3. **ServiceC** expõe endpoints de pedidos
+3. **ServiceC (Orders API)** expõe endpoints de pedidos
    - Endpoint final da cadeia
 
 ---
@@ -316,32 +316,57 @@ O Aspire usa um **orquestrador local (DCP - Distributed Application Coordinator)
 
 ### ❌ Aspire: NÃO Funciona Entre Soluções
 
-```
-Ambiente: Desenvolvimento Local (Aspire)
+```mermaid
+graph TB
+    subgraph aspire["🔴 Desenvolvimento Local (Aspire)"]
+        subgraph solutionA["Solution A (AppHost A)"]
+            ServiceA["ServiceA"]
+            ServiceB["ServiceB"]
+        end
 
-Solution A (AppHost A)          Solution B (AppHost B)
-├── ServiceA                    ├── ServiceX
-└── ServiceB                    └── ServiceY
-     │
-     └──> ❌ NÃO pode chamar ServiceX via Service Discovery
+        subgraph solutionB["Solution B (AppHost B)"]
+            ServiceX["ServiceX"]
+            ServiceY["ServiceY"]
+        end
+    end
+
+    ServiceB -->|❌ NÃO pode chamar| ServiceX
+
+    style ServiceA fill:#4A90E2,stroke:#2E5C8A,color:#fff
+    style ServiceB fill:#4A90E2,stroke:#2E5C8A,color:#fff
+    style ServiceX fill:#E74C3C,stroke:#C0392B,color:#fff
+    style ServiceY fill:#E74C3C,stroke:#C0392B,color:#fff
+    style aspire fill:#f9f9f9
+    style solutionA fill:#e3f2fd,stroke:#1976d2
+    style solutionB fill:#ffebee,stroke:#c62828
 ```
 
 ### ✅ Kubernetes: FUNCIONA Entre Soluções!
 
-```
-Ambiente: Kubernetes (Produção)
+```mermaid
+graph TB
+    subgraph k8s["🟢 Kubernetes (Produção)"]
+        subgraph nsA["Namespace: team-a (Solution A)"]
+            ServiceA["ServiceA<br/>Team A"]
+            ServiceB["ServiceB<br/>Team A"]
+        end
 
-Cluster Kubernetes
-│
-├── Namespace: team-a (Solution A)
-│   ├── ServiceA (desenvolvido por Team A)
-│   └── ServiceB (desenvolvido por Team A)
-│        │
-│        └──> ✅ PODE chamar ServiceX via DNS
-│
-└── Namespace: team-b (Solution B)
-    ├── ServiceX (desenvolvido por Team B)
-    └── ServiceY (desenvolvido por Team B)
+        subgraph nsB["Namespace: team-b (Solution B)"]
+            ServiceX["ServiceX<br/>Team B"]
+            ServiceY["ServiceY<br/>Team B"]
+        end
+    end
+
+    ServiceB -->|✅ PODE chamar| ServiceX
+    ServiceB -->|via DNS| ServiceX
+
+    style ServiceA fill:#50C878,stroke:#2E7D4E,color:#fff
+    style ServiceB fill:#50C878,stroke:#2E7D4E,color:#fff
+    style ServiceX fill:#50C878,stroke:#2E7D4E,color:#fff
+    style ServiceY fill:#50C878,stroke:#2E7D4E,color:#fff
+    style k8s fill:#f0f8f0
+    style nsA fill:#c8e6c9,stroke:#388e3c
+    style nsB fill:#c8e6c9,stroke:#388e3c
 ```
 
 **No Kubernetes, cada equipe/solução pode ter:**
@@ -675,31 +700,19 @@ dotnet add package KubernetesClient --version 19.0.2
 
 **Fluxo Completo:**
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ 1. ServiceB é deployado com label "api-type: products-api"     │
-└─────────────────────────────────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 2. ServiceA precisa chamar ServiceB                             │
-│    - KubernetesServiceDiscovery consulta K8s API                │
-│    - Busca: labelSelector="api-type=products-api"               │
-└─────────────────────────────────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 3. K8s API retorna:                                              │
-│    - Service name: serviceb                                      │
-│    - Namespace: products-ns                                      │
-└─────────────────────────────────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 4. ServiceA constrói URL automaticamente:                        │
-│    http://serviceb.products-ns.svc.cluster.local                │
-└─────────────────────────────────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 5. HttpClient faz chamada usando URL descoberta                 │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    A[1. ServiceB deployado<br/>Label: api-type=products-api] --> B[2. ServiceA precisa chamar ServiceB]
+    B --> C[KubernetesServiceDiscovery<br/>consulta K8s API]
+    C --> D[Busca: labelSelector=<br/>api-type=products-api]
+    D --> E[3. K8s API retorna:<br/>- Service: serviceb<br/>- Namespace: products-ns]
+    E --> F[4. Constrói URL:<br/>http://serviceb.products-ns<br/>.svc.cluster.local]
+    F --> G[5. HttpClient faz chamada<br/>usando URL descoberta]
+    
+    style A fill:#E8F5E9,stroke:#4CAF50
+    style E fill:#E3F2FD,stroke:#2196F3
+    style F fill:#FFF3E0,stroke:#FF9800
+    style G fill:#F3E5F5,stroke:#9C27B0
 ```
 
 ---
