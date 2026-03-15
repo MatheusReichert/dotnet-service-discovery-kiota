@@ -32,7 +32,7 @@ jobs:
 
       - name: Start ServiceB
         run: |
-          dotnet run --project ServiceB --no-build --urls "http://localhost:5002" &
+          dotnet run --project ServiceB --no-build --configuration Release --urls "http://localhost:5002" &
           echo $! > serviceb.pid
           for i in $(seq 1 30); do
             curl -s http://localhost:5002/openapi/v1.json > /dev/null 2>&1 && echo "ServiceB ready" && break
@@ -54,7 +54,7 @@ jobs:
 
       - name: Start ServiceC
         run: |
-          dotnet run --project ServiceC --no-build --urls "http://localhost:5003" &
+          dotnet run --project ServiceC --no-build --configuration Release --urls "http://localhost:5003" &
           echo $! > servicec.pid
           for i in $(seq 1 30); do
             curl -s http://localhost:5003/openapi/v1.json > /dev/null 2>&1 && echo "ServiceC ready" && break
