@@ -109,7 +109,7 @@ app.MapGet("/api/users/with-products-typed/{id}", async (int id, ServiceBClientF
             Message = "ServiceA → ServiceB usando Kiota + Descoberta Automática",
             Method = "Type-Safe Kiota Client",
             UserId = id,
-            Products = products,
+            Products = products?.Select(p => new { p.Id, p.Name, p.Price }).ToList(),
             Benefits = new[]
             {
                 "✅ URL descoberta automaticamente via K8s labels",
