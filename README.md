@@ -67,7 +67,27 @@ metadata:
 _cachedBaseUrl ??= await ResolveBaseUrlAsync();
 ```
 
-Resolution falls back hierarchically: **K8s label lookup → appsettings config → default URL**.
+URL resolution falls back hierarchically at startup:
+
+```mermaid
+flowchart TD
+    A[Service starts] --> B{Running in\nKubernetes?}
+    B -->|Yes| C[Query K8s API\nlabelSelector: api-type=products-api]
+    C --> D{Service\nfound?}
+    D -->|Yes| E[Build FQDN\nhttp://serviceb.products-ns.svc.cluster.local]
+    D -->|No| F
+    B -->|No| F[Read appsettings\nServices:ServiceB:Url]
+    F --> G{Config\npresent?}
+    G -->|Yes| H[Use configured URL]
+    G -->|No| I[Use default\nhttp://serviceb]
+    E & H & I --> J[Cache URL\n_cachedBaseUrl ??= ...]
+    J --> K[All requests reuse\ncached URL]
+
+    style E fill:#50C878,stroke:#2E7D4E,color:#fff
+    style H fill:#4A90E2,stroke:#2E5C8A,color:#fff
+    style I fill:#F39C12,stroke:#C87F0A,color:#fff
+    style J fill:#9B59B6,stroke:#6C3483,color:#fff
+```
 
 > **Aspire scope limitation:** Aspire service discovery only works within the same AppHost. For cross-solution communication in Kubernetes, use fully-qualified DNS names (`http://serviceb.products-ns.svc.cluster.local`) or a service mesh.
 
@@ -148,6 +168,30 @@ Or browse to `/scalar` on any service for interactive API docs.
 ---
 
 ## Kubernetes Deployment
+
+Each service runs in its own namespace. Cross-namespace calls use Kubernetes DNS:
+
+```mermaid
+graph TD
+    subgraph users-ns
+        A[ServiceA\nPod x2]
+    end
+    subgraph products-ns
+        B[ServiceB\nPod x2]
+    end
+    subgraph orders-ns
+        C[ServiceC\nPod x2]
+    end
+
+    A -->|http://serviceb.products-ns| B
+    B -->|http://servicec.orders-ns| C
+    I[Ingress] --> A
+
+    style A fill:#4A90E2,stroke:#2E5C8A,color:#fff
+    style B fill:#50C878,stroke:#2E7D4E,color:#fff
+    style C fill:#F39C12,stroke:#C87F0A,color:#fff
+    style I fill:#aaa,stroke:#555,color:#fff
+```
 
 ```bash
 # Build and push images
