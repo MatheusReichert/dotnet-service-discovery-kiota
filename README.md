@@ -1,281 +1,171 @@
-# .NET Microservices with Service Discovery + Kiota
+# dotnet-service-discovery-kiota
 
-[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Aspire](https://img.shields.io/badge/Aspire-13.1.2-512BD4)](https://learn.microsoft.com/en-us/dotnet/aspire/)
-[![Kiota](https://img.shields.io/badge/Kiota-1.22.0-00BCF2)](https://learn.microsoft.com/en-us/openapi/kiota/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+> POC: Automatic Kubernetes service discovery integrated with type-safe Kiota-generated HTTP clients — no hardcoded URLs, no manual client maintenance.
 
-> **[Documentação em Português](docs/README.pt-BR.md)**
+[![.NET](https://img.shields.io/badge/.NET_10-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?style=flat-square&logo=kubernetes&logoColor=white)](https://kubernetes.io)
+[![Kiota](https://img.shields.io/badge/Kiota-0078D4?style=flat-square&logo=microsoft&logoColor=white)](https://learn.microsoft.com/en-us/openapi/kiota/)
+[![.NET Aspire](https://img.shields.io/badge/.NET_Aspire-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://learn.microsoft.com/en-us/dotnet/aspire/)
 
-A proof-of-concept for automatic service discovery in .NET microservices using Kubernetes labels, Kiota-generated HTTP clients, and .NET Aspire orchestration.
+---
 
-**Key claim:** eliminates hardcoded URLs and validates API contracts at compile time.
+## The Problem
+
+In microservice architectures, services need to call each other. The typical approach hardcodes URLs in configuration files or relies on external registries (Consul, Eureka, service meshes). Both add operational overhead and none give you compile-time safety over your API contracts.
+
+## The Solution
+
+This POC combines two underused capabilities:
+
+1. **Kubernetes labels as a service registry** — no extra infrastructure needed
+2. **Kiota** — generates strongly-typed C# clients directly from OpenAPI specs
+
+The result: services discover each other dynamically via K8s labels, and every API call is validated at compile time.
 
 ---
 
 ## Architecture
 
-```mermaid
-graph LR
-    A[ServiceA<br/>Users API] -->|Service Discovery| B[ServiceB<br/>Products API]
-    B -->|Service Discovery| C[ServiceC<br/>Orders API]
-    A & B & C -.->|Orchestrated by| D[Aspire AppHost]
-
-    style A fill:#4A90E2,stroke:#2E5C8A,color:#fff
-    style B fill:#50C878,stroke:#2E7D4E,color:#fff
-    style C fill:#F39C12,stroke:#C87F0A,color:#fff
-    style D fill:#9B59B6,stroke:#6C3483,color:#fff
+```
+ServiceA (users) ──► ServiceB (products) ──► ServiceC (orders)
 ```
 
-Call chain: `ServiceA → ServiceB → ServiceC`
+Each service exposes an OpenAPI spec. Kiota generates type-safe clients from those specs. At runtime, the client factory discovers the service URL from Kubernetes — or falls back to config if running locally.
 
-| Service | Namespace | Responsibility |
-|---------|-----------|----------------|
-| ServiceA | `users-ns` | Users API, entry point |
-| ServiceB | `products-ns` | Products API |
-| ServiceC | `orders-ns` | Orders API |
-
----
-
-## How Service Discovery Works
-
-### Local (Aspire)
-
-Zero configuration needed. Aspire's DCP injects environment variables automatically, and `Microsoft.Extensions.ServiceDiscovery` resolves `http://serviceb` to the real port.
-
-```csharp
-// apphost.cs
-var serviceA = builder.AddProject<Projects.ServiceA>("servicea");
-var serviceB = builder.AddProject<Projects.ServiceB>("serviceb");
-var serviceC = builder.AddProject<Projects.ServiceC>("servicec");
+```
+┌──────────────────────────────────────────────────────┐
+│  ServiceA                                            │
+│                                                      │
+│  KiotaClientFactoryBase<T>                          │
+│    │                                                 │
+│    ├─ 1. Query K8s API by label (api-type=products) │
+│    ├─ 2. Fallback to config value                   │
+│    └─ 3. Return typed ApiClient                     │
+└──────────────────────────────────────────────────────┘
 ```
 
-### Kubernetes
-
-**This POC implements automatic discovery via Kubernetes labels.** Services annotate themselves with `api-type` labels; consumers query the K8s API at startup to resolve URLs, then cache the result.
-
+**Service discovery by label:**
 ```yaml
-# serviceb Service manifest
-metadata:
-  labels:
-    api-type: products-api   # ← discoverable label
+# Service manifest
+labels:
+  api-type: products-api   # this is all it takes
 ```
 
 ```csharp
-// Resolved once at startup, cached for the process lifetime
-_cachedBaseUrl ??= await ResolveBaseUrlAsync();
+// Consumer side — no URLs anywhere
+var services = await _client.CoreV1.ListServiceForAllNamespacesAsync(
+    labelSelector: "api-type=products-api"
+);
+// resolves to: http://{name}.{namespace}.svc.cluster.local
 ```
-
-URL resolution falls back hierarchically at startup:
-
-```mermaid
-flowchart TD
-    A[Service starts] --> B{Running in\nKubernetes?}
-    B -->|Yes| C[Query K8s API\nlabelSelector: api-type=products-api]
-    C --> D{Service\nfound?}
-    D -->|Yes| E[Build FQDN\nhttp://serviceb.products-ns.svc.cluster.local]
-    D -->|No| F
-    B -->|No| F[Read appsettings\nServices:ServiceB:Url]
-    F --> G{Config\npresent?}
-    G -->|Yes| H[Use configured URL]
-    G -->|No| I[Use default\nhttp://serviceb]
-    E & H & I --> J[Cache URL\n_cachedBaseUrl ??= ...]
-    J --> K[All requests reuse\ncached URL]
-
-    style E fill:#50C878,stroke:#2E7D4E,color:#fff
-    style H fill:#4A90E2,stroke:#2E5C8A,color:#fff
-    style I fill:#F39C12,stroke:#C87F0A,color:#fff
-    style J fill:#9B59B6,stroke:#6C3483,color:#fff
-```
-
-> **Aspire scope limitation:** Aspire service discovery only works within the same AppHost. For cross-solution communication in Kubernetes, use fully-qualified DNS names (`http://serviceb.products-ns.svc.cluster.local`) or a service mesh.
 
 ---
 
-## Kiota: Type-Safe Clients
+## Type-Safe Calls with Kiota
 
-Kiota generates HTTP clients from OpenAPI specs. If ServiceB renames a field, `dotnet build` fails in ServiceA — catching contract breaks at compile time instead of runtime.
+```csharp
+// Full IntelliSense, compile-time validation
+var client = await _clientFactory.CreateClientAsync();
+var products = await client.Api.Products.GetAsync();
+```
+
+Clients are auto-generated by CI whenever the OpenAPI spec changes — no manual maintenance.
+
+---
+
+## Reusable Factory (Template Method)
+
+Each service only needs to declare three things:
+
+```csharp
+public class ServiceBClientFactory : KiotaClientFactoryBase<ApiClient>
+{
+    protected override string ApiType         => "products-api";
+    protected override string ConfigurationKey => "Services:ServiceB:Url";
+    protected override string DefaultUrl       => "http://serviceb";
+
+    protected override ApiClient CreateClient(HttpClientRequestAdapter adapter)
+        => new ApiClient(adapter);
+}
+```
+
+The base class handles all discovery, fallback, and client wiring — ~82% boilerplate reduction per service.
+
+---
+
+## Running Locally (.NET Aspire)
 
 ```bash
-# Install
-dotnet tool install --global Microsoft.OpenApi.Kiota
-
-# Generate client
-cd ServiceA
-kiota generate -l CSharp \
-  -d ../ServiceB/openapi.json \
-  -o ./Generated/ServiceBClient \
-  -n ServiceA.Clients.ServiceB
+cd AppHost
+dotnet run
 ```
 
-Regenerate whenever the OpenAPI spec changes. The CI pipeline does this automatically (see [docs/OPENAPI-WORKFLOW.md](docs/OPENAPI-WORKFLOW.md)).
+Aspire orchestrates all three services locally. No Kubernetes required.
+
+---
+
+## Running on Kubernetes (k3d)
+
+```bash
+# Create local cluster
+k3d cluster create dev
+
+# Deploy
+kubectl apply -f k8s/
+
+# RBAC for service discovery
+kubectl apply -f k8s/rbac/
+```
+
+Services are deployed across namespaces (`users-ns`, `products-ns`, `orders-ns`) and communicate via Kubernetes DNS.
+
+---
+
+## CI/CD — Auto-generated Clients
+
+`.github/workflows/openapi-sync.yml` handles:
+
+1. Build services in dependency order (C → B → A)
+2. Extract OpenAPI specs from running services
+3. Regenerate Kiota clients
+4. Build and test the full solution
+5. Commit updated clients automatically
+
+Your generated code is always in sync with the actual API.
+
+---
+
+## Key Design Decisions
+
+| Decision | Why |
+|----------|-----|
+| K8s labels as registry | Zero extra infrastructure, native to K8s |
+| Kiota over Refit/RestSharp | Compile-time validation, auto-generated from spec |
+| Template Method in factory | One base, minimal per-service code |
+| Aspire for local dev | Same topology, no K8s overhead locally |
+| Cross-namespace RBAC | Least-privilege, production-realistic setup |
 
 ---
 
 ## Project Structure
 
 ```
-dotnet-playground-test/
-├── apphost.cs                    # Aspire orchestrator
-├── DotNetPlayground.sln
-├── ServiceA/                     # Users API
-│   ├── Generated/ServiceBClient/ # Kiota-generated client
-│   └── openapi.json
-├── ServiceB/                     # Products API
-│   ├── Generated/ServiceCClient/ # Kiota-generated client
-│   └── openapi.json
-├── ServiceC/                     # Orders API
-├── ServiceA.Tests/               # Integration tests (WebApplicationFactory + fakes)
-│   └── Fakes/
-│       ├── FakeKubernetesServiceDiscovery.cs
-│       ├── FakeHttpClientFactory.cs
-│       └── FakeServiceBMessageHandler.cs
-├── k8s/                          # Kubernetes manifests
-└── docs/                         # Extended documentation
+├── ServiceA/               # Users service (consumes ServiceB)
+├── ServiceB/               # Products service (consumes ServiceC)
+├── ServiceC/               # Orders service
+├── Shared/
+│   ├── KubernetesServiceDiscovery.cs   # K8s label-based discovery
+│   └── KiotaClientFactoryBase.cs       # Reusable factory base
+├── AppHost/                # .NET Aspire orchestration
+├── k8s/                    # Kubernetes manifests + RBAC
+└── .github/workflows/      # OpenAPI sync pipeline
 ```
 
 ---
 
-## Running Locally
+## Requirements
 
-**Prerequisites:** .NET SDK 10.0, Kiota CLI
-
-```bash
-# From the repo root
-dotnet run apphost.cs
-```
-
-Aspire Dashboard opens at `https://localhost:17247`. Use the token printed in the console.
-
-### Test the service chain
-
-```bash
-# Replace {PORT} with ServiceA's port shown in the dashboard
-curl http://localhost:{PORT}/api/users/with-products/1
-```
-
-Expected response:
-```json
-{
-  "Message": "ServiceA called ServiceB via service discovery",
-  "Products": "[{\"Id\":1,\"Name\":\"Laptop\",\"Price\":999.99},...]"
-}
-```
-
-Or browse to `/scalar` on any service for interactive API docs.
-
----
-
-## Kubernetes Deployment
-
-Each service runs in its own namespace. Cross-namespace calls use Kubernetes DNS:
-
-```mermaid
-graph TD
-    subgraph users-ns
-        A[ServiceA\nPod x2]
-    end
-    subgraph products-ns
-        B[ServiceB\nPod x2]
-    end
-    subgraph orders-ns
-        C[ServiceC\nPod x2]
-    end
-
-    A -->|http://serviceb.products-ns| B
-    B -->|http://servicec.orders-ns| C
-    I[Ingress] --> A
-
-    style A fill:#4A90E2,stroke:#2E5C8A,color:#fff
-    style B fill:#50C878,stroke:#2E7D4E,color:#fff
-    style C fill:#F39C12,stroke:#C87F0A,color:#fff
-    style I fill:#aaa,stroke:#555,color:#fff
-```
-
-```bash
-# Build and push images
-docker build -t your-registry/servicea:latest ./ServiceA
-docker build -t your-registry/serviceb:latest ./ServiceB
-docker build -t your-registry/servicec:latest ./ServiceC
-
-# Deploy
-kubectl apply -f k8s/00-namespaces.yaml
-kubectl apply -f k8s/01-servicea-deployment.yaml
-kubectl apply -f k8s/02-serviceb-deployment.yaml
-kubectl apply -f k8s/03-servicec-deployment.yaml
-
-# Verify
-kubectl get pods -n users-ns
-kubectl get pods -n products-ns
-kubectl get pods -n orders-ns
-```
-
-See [docs/k8s/README.md](docs/k8s/README.md) for RBAC setup, network policies, and troubleshooting.
-
----
-
-## API Endpoints
-
-| Service | Endpoint | Notes |
-|---------|----------|-------|
-| ServiceA | `GET /api/users` | List users |
-| ServiceA | `GET /api/users/{id}` | Get user |
-| ServiceA | `POST /api/users` | Create user |
-| **ServiceA** | **`GET /api/users/with-products/{id}`** | **Calls ServiceB** |
-| ServiceB | `GET /api/products` | List products |
-| ServiceB | `GET /api/products/{id}` | Get product |
-| ServiceB | `PUT /api/products/{id}` | Update product |
-| **ServiceB** | **`GET /api/products/with-orders/{id}`** | **Calls ServiceC** |
-| ServiceC | `GET /api/orders` | List orders |
-| ServiceC | `GET /api/orders/{id}` | Get order |
-| ServiceC | `DELETE /api/orders/{id}` | Delete order |
-
----
-
-## Stack
-
-| Technology | Version | Role |
-|------------|---------|------|
-| .NET | 10.0 | Runtime |
-| .NET Aspire | 13.1.2 | Local orchestration + service discovery |
-| Kiota | 1.30.0 | Type-safe HTTP client generation |
-| Scalar | 2.13.8 | API docs (Swagger alternative) |
-| KubernetesClient | 19.0.2 | K8s label-based service discovery |
-| Microsoft.Extensions.ServiceDiscovery | 10.4.0 | Service discovery middleware |
-
----
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [docs/QUICK-START.md](docs/QUICK-START.md) | 5-minute getting started guide |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architectural decisions and trade-offs |
-| [docs/INTEGRATION-GUIDE.md](docs/INTEGRATION-GUIDE.md) | Kiota + discovery integration guide |
-| [docs/KIOTA-EXPLAINED.md](docs/KIOTA-EXPLAINED.md) | Kiota concepts explained |
-| [docs/AUTOMATIC-DISCOVERY.md](docs/AUTOMATIC-DISCOVERY.md) | K8s label-based discovery in depth |
-| [docs/OPENAPI-WORKFLOW.md](docs/OPENAPI-WORKFLOW.md) | OpenAPI contract validation + CI/CD |
-| [docs/TESTING.md](docs/TESTING.md) | Integration testing guide |
-| [docs/k8s/README.md](docs/k8s/README.md) | Kubernetes deployment guide |
-| [docs/k8s/SERVICE-DISCOVERY.md](docs/k8s/SERVICE-DISCOVERY.md) | K8s service discovery details |
-| [docs/README.pt-BR.md](docs/README.pt-BR.md) | Documentacao em Portugues |
-
----
-
-## Roadmap
-
-- [x] Integration tests with `WebApplicationFactory` and isolated fakes
-- [x] K8s discovery URL cached at startup (no per-request K8s queries)
-- [ ] JWT authentication
-- [ ] Circuit breaker with Polly
-- [ ] OpenTelemetry tracing
-- [ ] Kubernetes deployment (CI/CD)
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE).
-
-**Author:** [Matheus Reichert](https://github.com/MatheusReichert)
+- .NET 10 SDK
+- Docker
+- k3d (for Kubernetes mode)
+- Kiota CLI (`dotnet tool install microsoft.openapi.kiota`)
