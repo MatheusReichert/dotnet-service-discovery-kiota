@@ -1,4 +1,4 @@
-# 🚀 POC: Service Discovery + Kiota
+# Microsserviços .NET com Service Discovery + Kiota
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)

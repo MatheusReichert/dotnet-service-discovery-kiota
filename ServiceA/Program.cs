@@ -15,7 +15,8 @@ builder.Services.ConfigureHttpClientDefaults(http =>
 builder.Services.AddSingleton<IKubernetesServiceDiscovery, KubernetesServiceDiscovery>();
 
 // ServiceB Client Factory (Kiota + Descoberta Automática)
-builder.Services.AddScoped<ServiceBClientFactory>();
+// Singleton: URL resolvida uma vez no startup, sem consulta ao K8s por request
+builder.Services.AddSingleton<ServiceBClientFactory>();
 
 builder.Services.AddOpenApi();
 
@@ -142,3 +143,5 @@ app.MapGet("/api/services/catalog", async (IKubernetesServiceDiscovery k8sDiscov
 .Produces(200);
 
 app.Run();
+
+public partial class Program { }

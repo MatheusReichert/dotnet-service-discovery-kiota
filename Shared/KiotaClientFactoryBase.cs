@@ -13,6 +13,8 @@ public abstract class KiotaClientFactoryBase<TClient> where TClient : class
     protected readonly IHttpClientFactory HttpClientFactory;
     protected readonly IConfiguration Configuration;
 
+    private string? _cachedBaseUrl;
+
     protected KiotaClientFactoryBase(
         IKubernetesServiceDiscovery k8sDiscovery,
         IHttpClientFactory httpClientFactory,
@@ -44,27 +46,33 @@ public abstract class KiotaClientFactoryBase<TClient> where TClient : class
     protected abstract TClient CreateClient(HttpClientRequestAdapter adapter);
 
     /// <summary>
-    /// Cria cliente Kiota com URL descoberta automaticamente
+    /// Cria cliente Kiota com URL descoberta automaticamente.
+    /// A URL é resolvida apenas na primeira chamada e reutilizada nas demais
+    /// (a factory deve ser registrada como Singleton no DI).
     /// </summary>
     public async Task<TClient> CreateClientAsync()
     {
-        // 1. Descoberta automática via Kubernetes API (Labels)
-        var discoveredUrl = await K8sDiscovery.DiscoverServiceUrlAsync(ApiType);
+        // 1. Resolve URL apenas uma vez — sem consulta ao K8s por request
+        _cachedBaseUrl ??= await ResolveBaseUrlAsync();
 
-        // 2. Fallback hierárquico: K8s → Config → Default
-        var baseUrl = discoveredUrl
-            ?? Configuration[ConfigurationKey]
-            ?? DefaultUrl;
-
-        // 3. Criar HttpClient configurado
+        // 2. Criar HttpClient configurado (fresh por chamada — evita problemas de DNS/pool)
         var httpClient = HttpClientFactory.CreateClient();
-        httpClient.BaseAddress = new Uri(baseUrl);
+        httpClient.BaseAddress = new Uri(_cachedBaseUrl);
 
-        // 4. Configurar Kiota adapter
+        // 3. Configurar Kiota adapter
         var authProvider = new AnonymousAuthenticationProvider();
         var adapter = new HttpClientRequestAdapter(authProvider, httpClient: httpClient);
 
-        // 5. Retornar cliente Kiota type-safe
+        // 4. Retornar cliente Kiota type-safe
         return CreateClient(adapter);
+    }
+
+    private async Task<string> ResolveBaseUrlAsync()
+    {
+        // Fallback hierárquico: K8s → Config → Default
+        var discoveredUrl = await K8sDiscovery.DiscoverServiceUrlAsync(ApiType);
+        return discoveredUrl
+            ?? Configuration[ConfigurationKey]
+            ?? DefaultUrl;
     }
 }

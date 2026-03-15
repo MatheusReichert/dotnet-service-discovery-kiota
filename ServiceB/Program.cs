@@ -15,7 +15,8 @@ builder.Services.ConfigureHttpClientDefaults(http =>
 builder.Services.AddSingleton<IKubernetesServiceDiscovery, KubernetesServiceDiscovery>();
 
 // ServiceC Client Factory (Kiota + Descoberta Automática)
-builder.Services.AddScoped<ServiceCClientFactory>();
+// Singleton: URL resolvida uma vez no startup, sem consulta ao K8s por request
+builder.Services.AddSingleton<ServiceCClientFactory>();
 
 // Configurar OpenAPI com metadados
 builder.Services.AddOpenApi(options =>
