@@ -10,6 +10,7 @@ Esta é uma prova de conceito demonstrando a **integração perfeita** entre:
 - 🔍 **Descoberta Automática** via Kubernetes API com labels
 - 🤖 **Kiota** para clientes HTTP type-safe
 - 📦 **Projeto Shared** com código reutilizável
+- 🧪 **Testes de integração** com `WebApplicationFactory` e fakes isolados
 
 > **Destaque:** Elimina URLs hardcoded + Type-safety em compile-time = Zero bugs de contrato em produção! 🎯
 
@@ -39,6 +40,8 @@ Esta POC demonstra:
 - ✅ Geração de clientes HTTP tipados com **Kiota**
 - ✅ Documentação interativa com **Scalar** (alternativa moderna ao Swagger)
 - ✅ Cadeia de chamadas: **ServiceA → ServiceB → ServiceC**
+- ✅ **Testes de integração** isolados com `WebApplicationFactory`, fakes de K8s e HTTP
+- ✅ **URL de descoberta cacheada** no startup — sem consulta ao K8s por request
 
 ---
 
@@ -128,11 +131,21 @@ dotnet-playground-test/
 │   ├── Generated/
 │   │   └── ServiceCClient/       # Cliente Kiota gerado
 │   └── openapi.json
-└── ServiceC/
-    ├── ServiceC.csproj
-    ├── Program.cs
-    ├── Dockerfile                # Docker image
-    └── openapi.json
+├── ServiceC/
+│   ├── ServiceC.csproj
+│   ├── Program.cs
+│   ├── Dockerfile                # Docker image
+│   └── openapi.json
+└── ServiceA.Tests/
+    ├── ServiceA.Tests.csproj
+    ├── GlobalUsings.cs
+    ├── ServiceAWebApplicationFactory.cs  # Setup compartilhado (fakes + DI)
+    ├── UsersEndpointTests.cs             # Testes dos endpoints básicos
+    ├── CrossServiceTests.cs              # Testes de chamadas ao ServiceB
+    └── Fakes/
+        ├── FakeKubernetesServiceDiscovery.cs  # Simula ausência do cluster K8s
+        ├── FakeHttpClientFactory.cs           # Retorna HttpClient com handler fake
+        └── FakeServiceBMessageHandler.cs      # Intercepta chamadas ao ServiceB
 ```
 
 ---
@@ -611,31 +624,44 @@ public class KubernetesServiceDiscovery : IKubernetesServiceDiscovery
 }
 ```
 
-3. **Uso com fallback automático**
+3. **Uso com fallback automático e URL cacheada**
+
+A URL é resolvida **uma única vez no startup** via `KiotaClientFactoryBase` (registrado como `AddSingleton`). Chamadas subsequentes reutilizam o valor sem consultar o K8s novamente:
 
 ```csharp
-// ServiceA/Program.cs
-app.MapGet("/api/users/with-products/{id}", async (
-    IHttpClientFactory httpClientFactory,
-    IKubernetesServiceDiscovery k8sDiscovery,
-    IConfiguration configuration) =>
+// Shared/KiotaClientFactoryBase.cs
+private string? _cachedBaseUrl;
+
+public async Task<TClient> CreateClientAsync()
 {
-    // 1. Tenta descoberta automática (K8s)
-    var serviceUrl = await k8sDiscovery.DiscoverServiceUrlAsync("products-api");
-    
-    // 2. Fallback para configuração manual (dev/Aspire)
-    if (string.IsNullOrEmpty(serviceUrl))
-    {
-        serviceUrl = configuration["Services:ServiceB:Url"] ?? "http://serviceb";
-    }
-    
-    var httpClient = httpClientFactory.CreateClient();
-    httpClient.BaseAddress = new Uri(serviceUrl);
-    var response = await httpClient.GetStringAsync("/api/products");
-    
-    return Results.Ok(new { Message = "Auto-discovered!", Products = response });
-});
+    // Resolve URL apenas uma vez — sem consulta ao K8s por request
+    _cachedBaseUrl ??= await ResolveBaseUrlAsync();
+
+    // HttpClient fresh por chamada (evita problemas de pool de conexão)
+    var httpClient = HttpClientFactory.CreateClient();
+    httpClient.BaseAddress = new Uri(_cachedBaseUrl);
+
+    var adapter = new HttpClientRequestAdapter(
+        new AnonymousAuthenticationProvider(), httpClient: httpClient);
+    return CreateClient(adapter);
+}
+
+private async Task<string> ResolveBaseUrlAsync()
+{
+    // Fallback hierárquico: K8s → Config → Default
+    var discoveredUrl = await K8sDiscovery.DiscoverServiceUrlAsync(ApiType);
+    return discoveredUrl
+        ?? Configuration[ConfigurationKey]
+        ?? DefaultUrl;
+}
 ```
+
+```csharp
+// ServiceA/Program.cs — Singleton garante que a URL é resolvida uma vez
+builder.Services.AddSingleton<ServiceBClientFactory>();
+```
+
+> **Por que não precisa de refresh?** A URL de um serviço K8s é estável — mudar o label `api-type` de um serviço já em produção seria uma quebra de contrato, não uma operação de rotina.
 
 4. **RBAC Permissions necessárias**
 
@@ -1547,11 +1573,12 @@ Ver [docs/k8s/README.md](docs/k8s/README.md) para:
 
 Para expandir esta POC:
 
+- [x] Adicionar testes de integração (`ServiceA.Tests` com `WebApplicationFactory`)
+- [x] URL de descoberta K8s cacheada no startup (`_cachedBaseUrl ??=`, factory `AddSingleton`)
 - [ ] Adicionar autenticação JWT
 - [ ] Implementar Circuit Breaker (Polly)
 - [ ] Adicionar OpenTelemetry para observabilidade
 - [ ] Configurar retry policies
-- [ ] Adicionar testes de integração
 - [ ] Deploy em Kubernetes
 - [ ] Configurar CI/CD
 

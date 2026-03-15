@@ -38,9 +38,6 @@ _ReSharper*/
 # Docker
 *.tar
 
-# Kiota generated (if regenerated)
-**/Generated/
-
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

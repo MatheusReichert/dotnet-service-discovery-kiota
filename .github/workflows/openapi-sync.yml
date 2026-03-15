@@ -102,6 +102,10 @@ jobs:
       - name: Build All Projects to Validate
         run: dotnet build --configuration Release
 
+      # Run integration tests
+      - name: Run Integration Tests (ServiceA.Tests)
+        run: dotnet test ServiceA.Tests/ServiceA.Tests.csproj --configuration Release --no-build --logger "console;verbosity=minimal"
+
       # Commit changes if on main branch
       - name: Commit regenerated clients
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
