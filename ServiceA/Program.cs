@@ -104,12 +104,18 @@ app.MapGet("/api/users/with-products-typed/{id}", async (int id, ServiceBClientF
         // Chamadas type-safe usando Kiota
         var products = await client.Api.Products.GetAsync();
 
+        // Map to plain DTOs — Kiota models carry AdditionalData which breaks System.Text.Json
+        var productDtos = new List<object>();
+        if (products != null)
+            foreach (var p in products)
+                productDtos.Add(new { p.Id, p.Name, p.Price });
+
         return Results.Ok(new
         {
             Message = "ServiceA → ServiceB usando Kiota + Descoberta Automática",
             Method = "Type-Safe Kiota Client",
             UserId = id,
-            Products = products?.ToList().Select(p => new { p.Id, p.Name, p.Price }).ToList(),
+            Products = productDtos,
             Benefits = new[]
             {
                 "✅ URL descoberta automaticamente via K8s labels",
